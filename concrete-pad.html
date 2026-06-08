@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Concrete Pad Estimator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #121212; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        header { background: #1e1e1e; padding: 15px; border-bottom: 2px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 1.2rem; color: #ff3333; font-weight: 600; }
+        
+        .panel { background: #1a1a1a; padding: 15px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #333; }
+        label { font-size: 0.85rem; font-weight: bold; color: #aaa; display: flex; flex-direction: column; gap: 5px; }
+        select, input { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px 12px; border-radius: 4px; outline: none; width: 100%; }
+        select:disabled, input:disabled { opacity: 0.5; }
+        
+        .tools { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; transition: background 0.2s; text-decoration: none; display: inline-block; line-height: 1.2; }
+        .btn.active { background: #ff3333; border-color: #ff3333; font-weight: bold; }
+        .btn-danger { background: #442222; border-color: #663333; }
+        .btn-success { background: #224422; border-color: #336633; font-weight: bold; }
+        
+        #workspace { flex: 1; display: flex; position: relative; background: #111; }
+        canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        
+        #report-panel { background: #1e1e1e; border-top: 2px solid #333; padding: 15px; min-height: 140px; display: flex; gap: 40px; }
+        .report-box { flex: 1; }
+        .report-box h3 { font-size: 0.9rem; color: #ff3333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .report-box p { font-size: 1.1rem; font-weight: 500; margin: 4px 0; }
+        .warning { color: #ffcc00; font-size: 0.8rem; margin-top: 5px; display: none; font-weight: bold; }
+
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: #1e1e1e; border: 2px solid #444; border-radius: 8px; width: 400px; padding: 25px; display: flex; flex-direction: column; gap: 20px; }
+        .modal-header { font-size: 1.1rem; font-weight: bold; color: #ff3333; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <a class="btn" style="background:#444;" href="index.html">◀ Main Menu</a>
+            <h1>Concrete Pad Estimator</h1>
+        </div>
+        <div class="tools">
+            <button class="btn" id="tool-snap90" onclick="toggleSnap90()">90° Snap: OFF</button>
+            <button class="btn btn-danger" onclick="undoLastNode()">Undo Node (Z)</button>
+            <button class="btn" style="background:#333; border-color:#555;" onclick="clearCanvas()">Clear All</button>
+            <button class="btn" style="background: #2b3a4a; border-color: #3b4a5a;" onclick="openSettings()">⚙ Settings</button>
+            <button class="btn btn-success" onclick="generateEngineeringPDF()">Print AutoCAD Sheet (PDF)</button>
+        </div>
+    </header>
+
+    <div class="panel">
+        <div style="width: 220px;">
+            <label>Drawing Sheet Title
+                <input type="text" id="drawing-title" value="Proposed Slab Layout">
+            </label>
+        </div>
+        <div style="width: 240px;">
+            <label>Intended Use Target Profile
+                <select id="use-select" onchange="updateUseCode()">
+                    <option value="walkway">Walkway / Footpath (Min 100mm)</option>
+                    <option value="driveway">Domestic Driveway (Min 150mm)</option>
+                    <option value="commercial">Light Machinery Pad (Min 150mm)</option>
+                    <option value="parking">Commercial Parking Lot (Min 175mm)</option>
+                    <option value="heavy_truck">Heavy Truck Apron (Min 200mm)</option>
+                </select>
+            </label>
+        </div>
+        <div style="width: 140px; display: flex; align-items: center; height: 50px;">
+            <label style="flex-direction: row; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="override-toggle" onchange="toggleOverride()"> Override Depth
+            </label>
+        </div>
+        <div style="width: 110px;">
+            <label>Slab Depth (mm)
+                <input type="number" id="depth-input" value="100" disabled oninput="calculateMaterials()">
+            </label>
+        </div>
+        <div style="width: 110px;">
+            <label>Design Slope (%)
+                <input type="number" id="slope-input" value="0" min="0" max="20" step="0.5" oninput="calculateMaterials()">
+            </label>
+        </div>
+    </div>
+
+    <div id="workspace">
+        <canvas id="cadCanvas"></canvas>
+    </div>
+
+    <div id="report-panel">
+        <div class="report-box">
+            <h3>Slab Dimensions & Profile</h3>
+            <p id="stat-area">Plan Area: 0.00 m²</p>
+            <p id="stat-sloped-area">True Surface Area (Sloped): 0.00 m²</p>
+            <p id="stat-volume">Concrete Volume: 0.00 m³</p>
+            <div id="depth-warning" class="warning">⚠️ Below structural code minimum for this application!</div>
+        </div>
+        <div class="report-box">
+            <h3>Material Quantities (1:2:4 Mix Baseline)</h3>
+            <p id="mat-cement">Cement (42.5kg bags): 0</p>
+            <p id="mat-sand">Sand: 0.00 m³</p>
+            <p id="mat-gravel">Aggregate (Gravel): 0.00 m³</p>
+        </div>
+    </div>
+
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">Drafting & Dimension Settings</div>
+            <label>Drawing Scale Context
+                <select id="scale-select">
+                    <option value="25">1m = 25px</option>
+                    <option value="50" selected>1m = 50px</option>
+                    <option value="100">1m = 100px</option>
+                </select>
+            </label>
+            <label>Display Measurement Units
+                <select id="unit-select">
+                    <option value="m" selected>Meters (m)</option>
+                    <option value="ft">Feet & Inches (ft' in")</option>
+                </select>
+            </label>
+            <div class="modal-footer">
+                <button class="btn" style="background:#444;" onclick="closeSettings()">Cancel</button>
+                <button class="btn active" onclick="saveSettings()">Apply Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('cadCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        let points = []; let isDrawing = false; let snap90Enabled = false;
+        let mousePos = { x: 0, y: 0 }; let activeSnapMarker = null;
+        let currentScale = 50; let currentUnit = 'm';
+        let globalMetrics = { planArea:0, slopedArea:0, volume:0, cement:0, sand:0, gravel:0 };
+
+        const codeDepths = { walkway: 100, driveway: 150, commercial: 150, parking: 175, heavy_truck: 200 };
+        const subgradeRequirements = {
+            walkway: { baseMm: 100, material: "Compacted Sand/Marl Fill" },
+            driveway: { baseMm: 150, material: "Crushed River Shingle Base" },
+            commercial: { baseMm: 150, material: "DGB20 Granular Base Course" },
+            parking: { baseMm: 200, material: "Compacted Crushed Limestone" },
+            heavy_truck: { baseMm: 250, material: "Heavy Pit-Run Gravel Subbase" }
+        };
+
+        function resizeCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            draw();
+        }
+        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('load', resizeCanvas);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'z') undoLastNode();
+        });
+
+        function toggleSnap90() {
+            snap90Enabled = !snap90Enabled;
+            const btn = document.getElementById('tool-snap90');
+            btn.className = snap90Enabled ? "btn active" : "btn";
+            btn.innerText = snap90Enabled ? "90° Snap: ON" : "90° Snap: OFF";
+        }
+
+        function toggleOverride() {
+            document.getElementById('depth-input').disabled = !document.getElementById('override-toggle').checked;
+            if (!document.getElementById('override-toggle').checked) updateUseCode();
+        }
+
+        function updateUseCode() {
+            if (!document.getElementById('override-toggle').checked) {
+                document.getElementById('depth-input').value = codeDepths[document.getElementById('use-select').value];
+            }
+            calculateMaterials();
+        }
+
+        function undoLastNode() {
+            if (points.length > 0) {
+                points.pop(); if (points.length === 0) isDrawing = false;
+                calculateMaterials(); draw();
+            }
+        }
+
+        function clearCanvas() { points = []; isDrawing = false; activeSnapMarker = null; calculateMaterials(); draw(); }
+        function openSettings() { document.getElementById('scale-select').value = currentScale; document.getElementById('unit-select').value = currentUnit; document.getElementById('settingsModal').style.display = 'flex'; }
+        function closeSettings() { document.getElementById('settingsModal').style.display = 'none'; }
+        function saveSettings() { currentScale = parseFloat(document.getElementById('scale-select').value); currentUnit = document.getElementById('unit-select').value; closeSettings(); calculateMaterials(); draw(); }
+
+        function convertPixelToUnitString(pixelDistance) {
+            let meters = pixelDistance / currentScale;
+            if (currentUnit === 'ft') {
+                let totalFeet = meters * 3.28084; let feetPart = Math.floor(totalFeet);
+                let inchesPart = Math.round((totalFeet - feetPart) * 12);
+                if (inchesPart === 12) { feetPart += 1; inchesPart = 0; }
+                return `${feetPart}' ${inchesPart}"`;
+            } return `${meters.toFixed(1)} m`;
+        }
+
+        function getCanvasMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+
+        function applySnapping(rawPos) {
+            activeSnapMarker = null; if (points.length === 0) return rawPos;
+            const SNAP_THRESHOLD = 18; const ESCAPE_THRESHOLD = 32;
+            let lastPoint = points[points.length - 1]; let snappedPos = { x: rawPos.x, y: rawPos.y };
+            
+            if (points.length > 2) {
+                let startPoint = points[0];
+                if (Math.hypot(rawPos.x - startPoint.x, rawPos.y - startPoint.y) < SNAP_THRESHOLD) {
+                    activeSnapMarker = { x: startPoint.x, y: startPoint.y, type: 'endpoint' }; return { x: startPoint.x, y: startPoint.y };
+                }
+            }
+            for (let i = 0; i < points.length; i++) {
+                let p = points[i]; if (Math.hypot(rawPos.x - p.x, rawPos.y - p.y) < SNAP_THRESHOLD) { activeSnapMarker = { x: p.x, y: p.y, type: 'node' }; return { x: p.x, y: p.y }; }
+                let dx = Math.abs(rawPos.x - p.x); let dy = Math.abs(rawPos.y - p.y);
+                if (dx < SNAP_THRESHOLD && Math.abs(rawPos.y - lastPoint.y) < ESCAPE_THRESHOLD) { snappedPos.x = p.x; activeSnapMarker = { x: p.x, y: rawPos.y, type: 'extension' }; }
+                if (dy < SNAP_THRESHOLD && Math.abs(rawPos.x - lastPoint.x) < ESCAPE_THRESHOLD) { snappedPos.y = p.y; activeSnapMarker = { x: rawPos.x, y: p.y, type: 'extension' }; }
+            }
+            if (snap90Enabled) { let dx = Math.abs(snappedPos.x - lastPoint.x); let dy = Math.abs(snappedPos.y - lastPoint.y); if (dx > dy) snappedPos.y = lastPoint.y; else snappedPos.x = lastPoint.x; }
+            return snappedPos;
+        }
+
+        function handlePointerDown(e) {
+            e.preventDefault(); const rawPos = getCanvasMousePos(e); const snappedPos = applySnapping(rawPos);
+            if (points.length > 2 && snappedPos.x === points[0].x && snappedPos.y === points[0].y) { isDrawing = false; calculateMaterials(); draw(); return; }
+            points.push(snappedPos); isDrawing = true; draw();
+        }
+        function handlePointerMove(e) { if (!isDrawing) return; const rawPos = getCanvasMousePos(e); mousePos = applySnapping(rawPos); draw(); }
+
+        canvas.addEventListener('mousedown', handlePointerDown); canvas.addEventListener('mousemove', handlePointerMove);
+        canvas.addEventListener('touchstart', handlePointerDown, {passive: false}); canvas.addEventListener('touchmove', handlePointerMove, {passive: false});
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+            let gridSpacing = currentScale >= 25 ? currentScale / 2 : 50;
+            for (let x = 0; x < canvas.width; x += gridSpacing) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+            for (let y = 0; y < canvas.height; y += gridSpacing) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+
+            if (points.length === 0) return;
+            ctx.strokeStyle = '#ff3333'; ctx.lineWidth = 3; ctx.fillStyle = 'rgba(255, 51, 51, 0.12)';
+            ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+            if (isDrawing) ctx.lineTo(mousePos.x, mousePos.y); else if (points.length > 2) ctx.closePath();
+            ctx.stroke(); ctx.fill();
+
+            ctx.font = "bold 11px monospace"; ctx.fillStyle = "#aaa";
+            for (let i = 0; i < points.length; i++) {
+                let p1 = points[i]; let p2 = points[i + 1] ? points[i + 1] : (!isDrawing && points.length > 2 ? points[0] : null);
+                if (p2) ctx.fillText(convertPixelToUnitString(Math.hypot(p2.x - p1.x, p2.y - p1.y)), (p1.x + p2.x) / 2 + 8, (p1.y + p2.y) / 2 - 4);
+            }
+            ctx.fillStyle = '#ffffff'; points.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 4, 0, Math.PI * 2); ctx.fill(); });
+
+            if (isDrawing) {
+                let lastPoint = points[points.length - 1]; let degAngle = Math.atan2(lastPoint.y - mousePos.y, mousePos.x - lastPoint.x) * (180 / Math.PI); if (degAngle < 0) degAngle += 360;
+                ctx.font = "bold 13px monospace"; ctx.fillStyle = "#ffcc00"; ctx.fillText(`${convertPixelToUnitString(Math.hypot(mousePos.x - lastPoint.x, mousePos.y - lastPoint.y))} @ ${degAngle.toFixed(1)}°`, mousePos.x + 15, mousePos.y - 15);
+            }
+            if (activeSnapMarker) {
+                ctx.lineWidth = 2;
+                if (activeSnapMarker.type === 'endpoint' || activeSnapMarker.type === 'node') { ctx.strokeStyle = '#00ffcc'; ctx.strokeRect(activeSnapMarker.x - 7, activeSnapMarker.y - 7, 14, 14); }
+                else if (activeSnapMarker.type === 'extension') { ctx.strokeStyle = '#00ff00'; ctx.beginPath(); ctx.arc(activeSnapMarker.x, activeSnapMarker.y, 5, 0, Math.PI*2); ctx.stroke(); }
+            }
+        }
+
+        function calculatePolygonArea(polygonPoints) {
+            let totalArea = 0; const j = polygonPoints.length - 1;
+            for (let i = 0; i < polygonPoints.length; i++) { let prevIndex = (i === 0) ? j : i - 1; totalArea += (polygonPoints[prevIndex].x + polygonPoints[i].x) * (polygonPoints[prevIndex].y - polygonPoints[i].y); }
+            return Math.abs(totalArea / 2) / (currentScale * currentScale);
+        }
+
+        function calculateMaterials() {
+            const planAreaMeters = calculatePolygonArea(points);
+            const slopePercent = parseFloat(document.getElementById('slope-input').value) || 0;
+            const slopedAreaMeters = planAreaMeters * Math.sqrt(1 + Math.pow(slopePercent / 100, 2));
+            const depthMm = parseFloat(document.getElementById('depth-input').value) || 0;
+            const volumeMeters = slopedAreaMeters * (depthMm / 1000);
+
+            const selectedUse = document.getElementById('use-select').value;
+            document.getElementById('depth-warning').style.display = (depthMm < codeDepths[selectedUse] && points.length > 2) ? 'block' : 'none';
+
+            let cementBags = 0; let sandVolume = 0; let gravelVolume = 0;
+            if (volumeMeters > 0) {
+                const totalDryVolume = volumeMeters * 1.54;
+                cementBags = Math.ceil(((totalDryVolume * 1) / 7) / 0.03);
+                sandVolume = (totalDryVolume * 2) / 7 * (currentUnit === 'ft' ? 35.3147 : 1);
+                gravelVolume = (totalDryVolume * 4) / 7 * (currentUnit === 'ft' ? 35.3147 : 1);
+            }
+
+            globalMetrics = { planArea: planAreaMeters, slopedArea: slopedAreaMeters, volume: volumeMeters, cement: cementBags, sand: sandVolume, gravel: gravelVolume };
+
+            let uA = currentUnit === 'ft' ? 'ft²' : 'm²'; let uV = currentUnit === 'ft' ? 'ft³' : 'm³';
+            let dA = currentUnit === 'ft' ? planAreaMeters * 10.7639 : planAreaMeters; let dSA = currentUnit === 'ft' ? slopedAreaMeters * 10.7639 : slopedAreaMeters; let dV = currentUnit === 'ft' ? volumeMeters * 35.3147 : volumeMeters;
+
+            document.getElementById('stat-area').innerText = `Plan Area: ${dA.toFixed(1)} ${uA}`;
+            document.getElementById('stat-sloped-area').innerText = `True Surface Area (Sloped): ${dSA.toFixed(1)} ${uA}`;
+            document.getElementById('stat-volume').innerText = `Concrete Volume: ${dV.toFixed(1)} ${uV}`;
+            document.getElementById('mat-cement').innerText = `Cement (42.5kg bags): ${cementBags}`;
+            document.getElementById('mat-sand').innerText = `Sand: ${sandVolume.toFixed(1)} ${uV}`;
+            document.getElementById('mat-gravel').innerText = `Aggregate (Gravel): ${gravelVolume.toFixed(1)} ${uV}`;
+        }
+
+        function generateEngineeringPDF() {
+            if (points.length < 3) { alert("Please draw a geometric layout on screen before exporting."); return; }
+            const { jsPDF } = window.jspdf; const doc = new jsPDF({ orientation: "landscape", unit: "in", format: [11, 17] });
+            
+            const sheetTitleInput = document.getElementById('drawing-title').value || "Proposed Slab Layout";
+            const currentSelectedUse = document.getElementById('use-select').value;
+            const useText = document.getElementById('use-select').options[document.getElementById('use-select').selectedIndex].text;
+            const depthVal = document.getElementById('depth-input').value; const slopeVal = document.getElementById('slope-input').value;
+            const uA = currentUnit === 'ft' ? 'ft²' : 'm²'; const uV = currentUnit === 'ft' ? 'ft³' : 'm³';
+            const subgradeData = subgradeRequirements[currentSelectedUse];
+
+            doc.setLineWidth(0.04); doc.setDrawColor(0, 0, 0); doc.rect(0.25, 0.25, 16.5, 10.5); doc.rect(13.0, 0.25, 3.75, 10.5);
+            doc.setLineWidth(0.02); doc.line(13.0, 2.5, 16.75, 2.5); doc.line(13.0, 4.5, 16.75, 4.5); doc.line(13.0, 8.5, 16.75, 8.5);
+
+            doc.setFont("Helvetica", "bold"); doc.setFontSize(16); doc.text("ONSITEESTIMATOR PRO", 13.2, 0.8);
+            doc.setFontSize(10); doc.setFont("Helvetica", "normal"); doc.text("FIELD ENGINEERING ENVIRONMENT", 13.2, 1.1);
+            doc.setFont("Helvetica", "bold"); doc.text("PROJECT DESCRIPTION:", 13.2, 2.9);
+            doc.setFont("Helvetica", "normal"); doc.text(`Title: ${sheetTitleInput}`, 13.2, 3.3); doc.text(`Intended Use: ${useText}`, 13.2, 3.6); doc.text(`Design Profile: Thickness ${depthVal}mm @ ${slopeVal}% Pitch`, 13.2, 3.9); doc.text(`Subgrade Base: ${subgradeData.baseMm}mm Base Course`, 13.2, 4.2);
+
+            doc.setFont("Helvetica", "bold"); doc.text("MATERIAL QUANTITIES SCHEDULE", 13.2, 4.9); doc.setFont("Helvetica", "normal"); doc.rect(13.2, 5.2, 3.3, 2.8); doc.line(13.2, 5.6, 16.5, 5.6); doc.line(15.2, 5.2, 15.2, 8.0);
+            doc.setFont("Helvetica", "bold"); doc.text("Material Item", 13.3, 5.45); doc.text("Quantity", 15.3, 5.45); doc.setFont("Helvetica", "normal");
+            doc.text("Cement (42.5kg Bags)", 13.3, 6.1); doc.text(`${globalMetrics.cement} Bags`, 15.3, 6.1); doc.line(13.2, 6.4, 16.5, 6.4);
+            doc.text(`Sand (${uV})`, 13.3, 6.9); doc.text(`${globalMetrics.sand.toFixed(1)} ${uV}`, 15.3, 6.9); doc.line(13.2, 7.2, 16.5, 7.2);
+            doc.text(`Aggregate (${uV})`, 13.3, 7.7); doc.text(`${globalMetrics.gravel.toFixed(1)} ${uV}`, 15.3, 7.7);
+
+            doc.setFont("Helvetica", "bold"); doc.text("METADATA PROFILE:", 13.2, 8.9); doc.setFont("Helvetica", "normal");
+            doc.text(`Date of Plot: ${new Date().toLocaleDateString()}`, 13.2, 9.3); doc.text(`Calculated Plan Area: ${(globalMetrics.planArea * (currentUnit === 'ft' ? 10.7639 : 1)).toFixed(1)} ${uA}`, 13.2, 9.6); doc.text(`Calculated Target Vol: ${(globalMetrics.volume * (currentUnit === 'ft' ? 35.3147 : 1)).toFixed(1)} ${uV}`, 13.2, 9.9);
+            doc.setFont("Helvetica", "bold"); doc.text("SHEET DETAILS: SCALE NTS // REF: PAD-01", 13.2, 10.4);
+
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity; points.forEach(p => { if(p.x < minX) minX = p.x; if(p.x > maxX) maxX = p.x; if(p.y < minY) minY = p.y; if(p.y > maxY) maxY = p.y; });
+            let padW = maxX - minX; let padH = maxY - minY; let plotScale = Math.min(10 / padW, 6.2 / padH);
+            let offsetX = 1.0 + (10 - padW * plotScale) / 2; let offsetY = 1.3 + (6.2 - padH * plotScale) / 2;
+
+            doc.setFontSize(14); doc.setFont("Helvetica", "bold"); doc.text(sheetTitleInput.toUpperCase() + " // PLAN VIEW", 1.0, 0.9);
+            doc.setLineWidth(0.03); doc.setDrawColor(255, 0, 0);
+            for (let i = 0; i < points.length; i++) { let p1 = points[i]; let p2 = points[i + 1] ? points[i + 1] : points[0]; doc.line(offsetX + (p1.x - minX) * plotScale, offsetY + (p1.y - minY) * plotScale, offsetX + (p2.x - minX) * plotScale, offsetY + (p2.y - minY) * plotScale); }
+            doc.setFontSize(9); doc.setFillColor(0,0,0);
+            for (let i = 0; i < points.length; i++) { let p1 = points[i]; let p2 = points[i + 1] ? points[i + 1] : points[0]; doc.text(convertPixelToUnitString(Math.hypot(p2.x - p1.x, p2.y - p1.y)), offsetX + (((p1.x + p2.x) / 2) - minX) * plotScale + 0.1, offsetY + (((p1.y + p2.y) / 2) - minY) * plotScale - 0.05); }
+
+            // --- ENGINEERING CROSS SECTION (NTS) ---
+            let csX = 1.0, csY = 9.1, csW = 3.5, slabH = 0.4, subH = 0.5; 
+            doc.setDrawColor(0,0,0); doc.setLineWidth(0.02);
+            
+            // Draw Concrete Slab Box & Hatching (Pebbles)
+            doc.rect(csX, csY, csW, slabH); doc.setFillColor(160, 160, 160);
+            for(let sx = csX + 0.15; sx < csX + csW; sx += 0.4) { 
+                doc.circle(sx, csY + 0.15, 0.02, "F"); 
+                doc.circle(sx + 0.15, csY + 0.25, 0.012, "F"); 
+            }
+            
+            // Draw Subgrade Base Box & Hatching (Lines)
+            doc.rect(csX, csY + slabH, csW, subH); doc.setFillColor(100, 100, 100);
+            for(let bx = csX + 0.08; bx < csX + csW; bx += 0.2) { 
+                doc.line(bx, csY + slabH + 0.1, bx + 0.05, csY + slabH + 0.25); 
+                doc.line(bx + 0.05, csY + slabH + 0.35, bx + 0.1, csY + slabH + 0.15); 
+            }
+            
+            // Headings & Dimension Indicators
+            doc.setFontSize(10); doc.setFont("Helvetica", "bold"); 
+            doc.text("ENGINEERING CROSS SECTION (NTS)", csX, csY - 0.15);
+            
+            // Left Side: Thickness Dimensions Only (Kept clear of hatching)
+            doc.setFontSize(8); doc.setFont("Helvetica", "normal"); 
+            doc.line(csX - 0.1, csY, csX - 0.1, csY + slabH); 
+            doc.text(`${depthVal}mm`, csX - 0.5, csY + (slabH / 2) + 0.04); 
+            
+            doc.line(csX - 0.1, csY + slabH, csX - 0.1, csY + slabH + subH); 
+            doc.text(`${subgradeData.baseMm}mm`, csX - 0.5, csY + slabH + (subH / 2) + 0.04); 
+            
+            // Right Side: Material Descriptions (Shifted clear of the 3.5" wide hatching box)
+            let textOffsetX = csX + csW + 0.2; // Places text at X = 4.7", safely outside the box
+            
+            doc.text("Structural Concrete Slab", textOffsetX, csY + (slabH / 2) + 0.04);
+            
+            doc.setFont("Helvetica", "bold"); 
+            doc.text(`Base Course: ${subgradeData.material}`, textOffsetX, csY + slabH + (subH / 2) + 0.04);
+            
+            // Subgrade Level baseline
+            doc.setLineWidth(0.015); 
+            doc.line(csX - 0.3, csY + slabH + subH, csX + csW + 0.3, csY + slabH + subH); 
+            doc.setFont("Helvetica", "normal"); 
+            doc.text("Compacted Subgrade Level", textOffsetX, csY + slabH + subH + 0.04);
+
+            doc.save(`Sheet_${sheetTitleInput.replace(/\s+/g, '_')}.pdf`);
+        }
+    </script>
+</body>
+</html>
