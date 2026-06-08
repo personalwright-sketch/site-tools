@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Floor Plan Partition Drafter Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body { background: #121212; color: #e0e0e0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        header { background: #1e1e1e; padding: 15px; border-bottom: 2px solid #333; display: flex; justify-content: space-between; align-items: center; }
+        h1 { font-size: 1.2rem; color: #ff3333; font-weight: 600; }
+        
+        .panel { background: #1a1a1a; padding: 15px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap; border-bottom: 1px solid #333; }
+        label { font-size: 0.85rem; font-weight: bold; color: #aaa; display: flex; flex-direction: column; gap: 5px; }
+        select, input { background: #2a2a2a; color: #fff; border: 1px solid #444; padding: 8px 12px; border-radius: 4px; outline: none; width: 100%; }
+        
+        .tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .btn { background: #2d2d2d; color: #fff; border: 1px solid #444; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 0.85rem; transition: background 0.2s; text-decoration: none; display: inline-block; line-height: 1.2; }
+        .btn.active { background: #ff3333; border-color: #ff3333; font-weight: bold; }
+        .btn-danger { background: #442222; border-color: #663333; }
+        .btn-success { background: #224422; border-color: #336633; font-weight: bold; }
+        .btn-warn { background: #4a3b12; border-color: #6b5215; color: #ffd866; }
+        .btn-toggle { background: #1d3557; border-color: #457b9d; color: #a8dadc; font-weight: bold; }
+        
+        .snap-control-box { background: #2a2a2a; border: 1px solid #444; padding: 6px 12px; border-radius: 4px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+        .snap-control-box span { font-size: 0.8rem; font-weight: bold; color: #00ffcc; letter-spacing: 0.5px; }
+        .snap-chk { display: flex; align-items: center; gap: 5px; font-size: 0.8rem; cursor: pointer; color: #ccc; user-select: none; }
+        .snap-chk input { width: auto; cursor: pointer; margin: 0; }
+
+        #floor-workspace { flex: 1; display: flex; position: relative; background: #111; }
+        canvas { display: block; width: 100%; height: 100%; cursor: crosshair; }
+        
+        #floor-report-panel { background: #1e1e1e; border-top: 2px solid #333; padding: 15px; min-height: 150px; display: flex; gap: 40px; overflow-y: auto; }
+        .report-box { flex: 1; min-width: 250px; }
+        .report-box h3 { font-size: 0.9rem; color: #ff3333; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+        .report-box p { font-size: 1.0rem; font-weight: 500; margin: 5px 0; color: #ccc; }
+        .report-box span { color: #ff3333; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <a class="btn" style="background:#444;" href="index.html">◀ Main Menu</a>
+            <h1>Floor Plan Partition Drafter Pro</h1>
+        </div>
+        <div class="tools">
+            <button class="btn btn-warn" onclick="breakActiveChain()">Finalize Wall Run (ESC)</button>
+            
+            <div class="snap-control-box">
+                <span>🧲 CAD O-SNAP Matrix:</span>
+                <label class="snap-chk"><input type="checkbox" id="snap-ep" checked> Endpoint</label>
+                <label class="snap-chk"><input type="checkbox" id="snap-mp" checked> Midpoint</label>
+                <label class="snap-chk"><input type="checkbox" id="snap-pe" checked> Perpendicular</label>
+                <label class="snap-chk"><input type="checkbox" id="snap-ai" checked> Apparent Intersect</label>
+                <label class="snap-chk"><input type="checkbox" id="snap-pr" checked> Parallel Trace</label>
+                <label class="snap-chk"><input type="checkbox" id="snap-90" checked> 90° Ortho</label>
+                <label class="snap-chk"><input type="checkbox" id="snap-nr" checked> Nearest</label>
+            </div>
+
+            <button class="btn btn-danger" onclick="undoFloorElement()">Undo Last (Z)</button>
+            <button class="btn" style="background:#333; border-color:#555;" onclick="clearFloorCanvas()">Clear Canvas</button>
+            <button class="btn btn-success" onclick="generateFloorPlanPDF()">Print Comp BoQ Sheet (PDF)</button>
+        </div>
+    </header>
+
+    <div class="panel">
+        <div style="width: 140px;">
+            <label>Project Sheet Title
+                <input type="text" id="floor-title" value="Proposed Layout Plan">
+            </label>
+        </div>
+        <div style="width: 170px;">
+            <label>Active Mode Context
+                <select id="mode-select" onchange="handleModeChange()">
+                    <option value="wall" selected>🧱 Draw Structural Wall</option>
+                    <option value="door">🚪 Place Structural Opening</option>
+                    <option value="window">🪟 Place Architectural Window</option>
+                    <option value="trim">✂️ CAD Trim Boundary Tool</option>
+                </select>
+            </label>
+        </div>
+        
+        <div style="width: 320px;" id="wall-spec-container">
+            <label>Wall Specification Profile
+                <select id="wall-profile-select">
+                    <optgroup label="1. Concrete Masonry Unit (CMU) / Block">
+                        <option value="125" data-category="cmu" data-core="100" selected>4" Block (~125mm Finished)</option>
+                        <option value="175" data-category="cmu" data-core="150">6" Block (~175mm Finished)</option>
+                        <option value="225" data-category="cmu" data-core="200">8" Block (~225mm Finished)</option>
+                        <option value="325" data-category="cmu" data-core="300">12" Block (~325mm Finished)</option>
+                    </optgroup>
+                    <optgroup label="2. Brick (Clay Masonry)">
+                        <option value="102.5" data-category="brick" data-core="102.5">Single Wythe (Half-Brick: 102.5mm)</option>
+                        <option value="215" data-category="brick" data-core="215">Double Wythe (Solid Wall: 215mm)</option>
+                        <option value="300" data-category="brick" data-core="200">Brick Cavity Wall (Typical: 300mm)</option>
+                    </optgroup>
+                    <optgroup label="3. Drywall / Stud Framing (Interior Partitions)">
+                        <option value="89" data-category="stud" data-core="64">Standard Slim Partition (89mm Finished)</option>
+                        <option value="114" data-category="stud" data-core="89">Standard 2x4 Timber Partition (114mm Finished)</option>
+                        <option value="152" data-category="stud" data-core="92">Acoustic / Plumbing Chase Wall (152mm Finished)</option>
+                        <option value="175" data-category="stud" data-core="150">Deep Stud Partition (175mm Finished)</option>
+                    </optgroup>
+                    <optgroup label="4. Sheeted Metal / Cladding">
+                        <option value="10" data-category="clad" data-core="0.6">Single-Skin Cladding (Sheet Thickness only)</option>
+                        <option value="50" data-category="clad" data-core="50">Insulated Sandwich Panels (50mm Core)</option>
+                        <option value="100" data-category="clad" data-core="100">Insulated Sandwich Panels (100mm Core)</option>
+                        <option value="150" data-category="clad" data-core="150">Insulated Sandwich Panels (150mm Core)</option>
+                    </optgroup>
+                    <optgroup label="5. Reinforced Concrete (Cast-in-Place)">
+                        <option value="150" data-category="concrete" data-core="150">Minimum Structural Wall (150mm Concrete)</option>
+                        <option value="200" data-category="concrete" data-core="200">Standard Shear/Retaining Wall (200mm)</option>
+                        <option value="250" data-category="concrete" data-core="250">Standard Shear/Retaining Wall (250mm)</option>
+                        <option value="300" data-category="concrete" data-core="300">Standard Shear/Retaining Wall (300mm)</option>
+                    </optgroup>
+                </select>
+            </label>
+        </div>
+
+        <div style="width: 300px; display: none;" id="door-spec-container">
+            <label>Aperture & Door Profile Type
+                <select id="door-size-select">
+                    <optgroup label="Plain Framed Openings (Un-Hung Walkway)">
+                        <option value="0.914" data-door-type="opening">Standard Walkway Opening (3'0" / 914mm)</option>
+                        <option value="1.219" data-door-type="opening">Wide Hallway Egress Opening (4'0" / 1219mm)</option>
+                    </optgroup>
+                    <optgroup label="1. Residential Interior Doors (H: 6'8&quot;)">
+                        <option value="0.762" data-door-type="single" selected>Passage Door (30" / 762mm)</option>
+                        <option value="0.813" data-door-type="single">Passage Door (32" / 813mm)</option>
+                        <option value="0.914" data-door-type="single">Accessible Passage (36" / 914mm)</option>
+                        <option value="0.711" data-door-type="single">Narrow Passage (28" / 711mm)</option>
+                        <option value="0.610" data-door-type="single">Closet / Pantry Single (24" / 610mm)</option>
+                        <option value="0.457" data-door-type="single">Linen Closet / Utility (18" / 457mm)</option>
+                        <option value="1.219" data-door-type="double">Wardrobe Pair / French (4'0" / 1219mm)</option>
+                        <option value="1.524" data-door-type="double">Wardrobe Pair / French (5'0" / 1524mm)</option>
+                        <option value="1.829" data-door-type="double">Wardrobe Pair / French (6'0" / 1829mm)</option>
+                    </optgroup>
+                    <optgroup label="2. Residential Exterior Doors">
+                        <option value="0.914" data-door-type="single">Primary Front Main Entry (36" / 914mm)</option>
+                        <option value="0.813" data-door-type="single">Secondary Rear/Side Entry (32" / 813mm)</option>
+                        <option value="1.524" data-door-type="double">Hinged Garden Pair (5'0" / 1524mm)</option>
+                        <option value="1.829" data-door-type="double">Hinged Garden Pair (6'0" / 1829mm)</option>
+                    </optgroup>
+                    <optgroup label="3. Commercial Heavy-Duty (H: 7'0&quot;)">
+                        <option value="0.914" data-door-type="single">Office / Space Entry 3070 (3'0" / 914mm)</option>
+                        <option value="0.914" data-door-type="single">Single Emergency Fire Exit (3'0" / 914mm)</option>
+                        <option value="1.067" data-door-type="single">Wide Egress Fire Exit (3'6" / 1067mm)</option>
+                        <option value="1.219" data-door-type="single">Industrial Single Exit (4'0" / 1219mm)</option>
+                        <option value="1.829" data-door-type="double">Suite Entry / Corridor Pair (6'0" / 1829mm)</option>
+                        <option value="2.438" data-door-type="double">Assembly Double Fire Exit (8'0" / 2438mm)</option>
+                        <option value="1.524" data-door-type="double">Server/Utility Room Pair (5'0" / 1524mm)</option>
+                    </optgroup>
+                    <optgroup label="4. Overhead & Garage Track Doors">
+                        <option value="2.438" data-door-type="garage">Residential Single Car Bay (8'0" / 2438mm)</option>
+                        <option value="2.743" data-door-type="garage">Residential Single Car Bay (9'0" / 2743mm)</option>
+                        <option value="4.877" data-door-type="garage">Residential Double Car Bay (16'0" / 4877mm)</option>
+                        <option value="3.048" data-door-type="garage">Commercial Loading Dock Bay (10'0" / 3048mm)</option>
+                        <option value="3.658" data-door-type="garage">Commercial Delivery Freight Bay (12'0" / 3658mm)</option>
+                        <option value="4.267" data-door-type="garage">Industrial Semi Freight Bay (14'0" / 4267mm)</option>
+                    </optgroup>
+                </select>
+            </label>
+        </div>
+
+        <div style="width: 320px; display: none;" id="window-spec-container">
+            <label>Window Glazing Specification Profile
+                <select id="window-size-select">
+                    <optgroup label="1. Residential Operable Windows">
+                        <option value="0.914" data-win-type="operable">Double/Single-Hung 3046 (36" / 914mm)</option>
+                        <option value="0.610" data-win-type="operable">Double/Single-Hung 2030 (24" / 610mm)</option>
+                        <option value="1.219" data-win-type="operable">Double/Single-Hung 4040 (48" / 1219mm)</option>
+                        <option value="1.524" data-win-type="operable">Horizontal Slider 5040 (60" / 1524mm)</option>
+                        <option value="1.829" data-win-type="operable">Horizontal Slider 6040 (72" / 1829mm)</option>
+                        <option value="0.610" data-win-type="operable">Casement Crank Out (24" / 610mm)</option>
+                        <option value="0.914" data-win-type="operable">Awning Window Top-Hinged (36" / 914mm)</option>
+                        <option value="0.762" data-win-type="operable">Jalousie Louvered Slats (30" / 762mm)</option>
+                    </optgroup>
+                    <optgroup label="2. Residential Fixed & Accent Windows">
+                        <option value="1.219" data-win-type="fixed">Standard Picture Window (4'0" / 1219mm)</option>
+                        <option value="1.829" data-win-type="fixed">Large Architectural Picture (6'0" / 1829mm)</option>
+                        <option value="0.914" data-win-type="fixed">Stacked Door Transom (36" / 914mm)</option>
+                        <option value="2.438" data-win-type="fixed">Clerestory High Roofline Span (96" / 2438mm)</option>
+                    </optgroup>
+                    <optgroup label="3. Commercial Extruded Glazing Systems">
+                        <option value="1.067" data-win-type="commercial">Storefront Grid Bay Module (42" / 1067mm)</option>
+                        <option value="2.134" data-win-type="commercial">Storefront Paired Split-Mullion (84" / 2134mm)</option>
+                        <option value="1.524" data-win-type="commercial">Slab-to-Slab Window Wall Panel (60" / 1524mm)</option>
+                        <option value="2.438" data-win-type="commercial">Curtain Wall Suspended Envelope (96" / 2438mm)</option>
+                        <option value="0.914" data-win-type="operable">Integrated Commercial Projected Vent (36" / 914mm)</option>
+                    </optgroup>
+                    <optgroup label="4. Floor-to-Ceiling & Movable Glass Walls">
+                        <option value="1.829" data-win-type="fixed">Fixed Glass Wall Panel (72" / 1829mm)</option>
+                        <option value="3.658" data-win-type="slide-wall">Multi-Slide Track Glass Wall (12'0" / 3658mm)</option>
+                        <option value="6.096" data-win-type="slide-wall">Multi-Slide System Extended (20'0" / 6096mm)</option>
+                        <option value="3.048" data-win-type="bifold-wall">Bi-Fold Accordion Wall System (10'0" / 3048mm)</option>
+                    </optgroup>
+                </select>
+            </label>
+        </div>
+
+        <div style="width: 180px; display: none;" id="fixture-swing-container">
+            <label>Plan Geometry Orientation
+                <button class="btn btn-toggle" type="button" id="swing-toggle-btn" onclick="cycleSwingDirection()">Inward - Left 🔄</button>
+            </label>
+        </div>
+
+        <div style="width: 90px;">
+            <label>Wall Ht (m)
+                <input type="number" id="wall-height-input" value="3.0" min="1.0" max="10.0" step="0.1" oninput="calculateFloorMaterials()">
+            </label>
+        </div>
+    </div>
+
+    <div id="floor-workspace">
+        <canvas id="floorCanvas"></canvas>
+    </div>
+
+    <div id="floor-report-panel">
+        <div class="report-box">
+            <h3>Linear Metrics Tracker</h3>
+            <p id="track-walls-num">Total Committed Wall Run Segments: 0</p>
+            <p id="track-length">Sum Wall Length: 0.00 m</p>
+            <p id="track-surface">Sum Vertical Surface Area: 0.00 m²</p>
+        </div>
+        <div class="report-box">
+            <h3>Fixtures Inventory Registry</h3>
+            <p id="track-doors">Registered Openings/Doors: 0 Units</p>
+            <p id="track-windows">Registered Fixed Windows: 0 Units</p>
+        </div>
+        <div class="report-box" style="flex:1.5;">
+            <h3>Live Global Bill Of Quantities Estimation</h3>
+            <div id="boq-summary-area" style="font-size: 0.85rem; line-height: 1.4; display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                <div>Structural Elements Block/Brick: <span id="boq-units">0 Pcs</span></div>
+                <div>Drywall/Clad Panels: <span id="boq-drywall">0 Sheets</span></div>
+                <div>Structural Cement Bags: <span id="boq-cement">0 Bags</span></div>
+                <div>Bulk Infill Sand/Grout: <span id="boq-sand">0.00 m³</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const floorCanvas = document.getElementById('floorCanvas');
+        const fCtx = floorCanvas.getContext('2d');
+        
+        let floorWalls = []; 
+        let floorAssets = []; 
+        let currentWallPoints = [];
+        let fMousePos = { x: 0, y: 0 };
+        let fIsDrawing = false;
+        
+        let activeSnapMarker = null; 
+        let activeParallelGuide = null;
+        let currentScale = 50; 
+        let actionHistoryLog = [];
+        let proposedTrimSegment = null;
+
+        let activeSwingConfigIndex = 0;
+        const SWING_LABELS = [
+            "Inward - Left 🔄",
+            "Inward - Right 🔄",
+            "Outward - Left 🔄",
+            "Outward - Right 🔄"
+        ];
+
+        function cycleSwingDirection() {
+            activeSwingConfigIndex = (activeSwingConfigIndex + 1) % 4;
+            document.getElementById('swing-toggle-btn').innerText = SWING_LABELS[activeSwingConfigIndex];
+            drawFloorPlan();
+        }
+
+        function resizeFloorCanvas() {
+            floorCanvas.width = floorCanvas.offsetWidth;
+            floorCanvas.height = floorCanvas.offsetHeight;
+            drawFloorPlan();
+        }
+        window.addEventListener('resize', resizeFloorCanvas);
+        window.addEventListener('load', resizeFloorCanvas);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') breakActiveChain();
+            if (e.key.toLowerCase() === 'z') undoFloorElement();
+        });
+
+        function handleModeChange() {
+            const mode = document.getElementById('mode-select').value;
+            document.getElementById('wall-spec-container').style.display = (mode === 'wall') ? 'block' : 'none';
+            document.getElementById('door-spec-container').style.display = (mode === 'door') ? 'block' : 'none';
+            document.getElementById('window-spec-container').style.display = (mode === 'window') ? 'block' : 'none';
+            document.getElementById('fixture-swing-container').style.display = (mode === 'wall' || mode === 'trim') ? 'none' : 'block';
+            
+            proposedTrimSegment = null;
+            breakActiveChain();
+        }
+
+        function breakActiveChain() {
+            if (currentWallPoints.length > 0) {
+                currentWallPoints = [];
+                fIsDrawing = false;
+                calculateFloorMaterials();
+                drawFloorPlan();
+            }
+        }
+
+        function convertPixelToUnitString(pixelDistance) {
+            return `${(pixelDistance / currentScale).toFixed(2)} m`;
+        }
+
+        function getFloorMousePos(e) {
+            const rect = floorCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+
+        function applyFloorSnapping(rawPos) {
+            activeSnapMarker = null;
+            activeParallelGuide = null;
+            const SNAP_THRESHOLD = 20;
+
+            const snapEP = document.getElementById('snap-ep').checked;
+            const snapMP = document.getElementById('snap-mp').checked;
+            const snapPE = document.getElementById('snap-pe').checked;
+            const snapAI = document.getElementById('snap-ai').checked;
+            const snapPR = document.getElementById('snap-pr').checked;
+            const snap90 = document.getElementById('snap-90').checked;
+            const snapNR = document.getElementById('snap-nr').checked;
+
+            let trackingPos = { x: rawPos.x, y: rawPos.y };
+            if (snap90 && fIsDrawing && currentWallPoints.length > 0) {
+                let lastNode = currentWallPoints[currentWallPoints.length - 1];
+                let dx = Math.abs(rawPos.x - lastNode.x);
+                let dy = Math.abs(rawPos.y - lastNode.y);
+                if (dx > dy) trackingPos.y = lastNode.y; else trackingPos.x = lastNode.x;
+            }
+
+            if (snapEP) {
+                for (let i = 0; i < floorWalls.length; i++) {
+                    let w = floorWalls[i];
+                    if (Math.hypot(trackingPos.x - w.p1.x, trackingPos.y - w.p1.y) < SNAP_THRESHOLD) {
+                        activeSnapMarker = { x: w.p1.x, y: w.p1.y, type: 'ENDPOINT', label: 'Endpoint (EP)' };
+                        return { x: w.p1.x, y: w.p1.y };
+                    }
+                    if (Math.hypot(trackingPos.x - w.p2.x, trackingPos.y - w.p2.y) < SNAP_THRESHOLD) {
+                        activeSnapMarker = { x: w.p2.x, y: w.p2.y, type: 'ENDPOINT', label: 'Endpoint (EP)' };
+                        return { x: w.p2.x, y: w.p2.y };
+                    }
+                }
+            }
+
+            if (snapMP) {
+                for (let i = 0; i < floorWalls.length; i++) {
+                    let w = floorWalls[i];
+                    let midX = (w.p1.x + w.p2.x) / 2;
+                    let midY = (w.p1.y + w.p2.y) / 2;
+                    if (Math.hypot(trackingPos.x - midX, trackingPos.y - midY) < SNAP_THRESHOLD) {
+                        activeSnapMarker = { x: midX, y: midY, type: 'MIDPOINT', label: 'Midpoint (MP)' };
+                        return { x: midX, y: midY };
+                    }
+                }
+            }
+
+            if (snapPE && fIsDrawing && currentWallPoints.length > 0) {
+                let basePt = currentWallPoints[currentWallPoints.length - 1];
+                for (let i = 0; i < floorWalls.length; i++) {
+                    let w = floorWalls[i];
+                    let perpPt = getPerpendicularProjection(basePt, w.p1, w.p2);
+                    if (perpPt && Math.hypot(trackingPos.x - perpPt.x, trackingPos.y - perpPt.y) < SNAP_THRESHOLD) {
+                        activeSnapMarker = { x: perpPt.x, y: perpPt.y, type: 'PERPENDICULAR', label: 'Perpendicular (PE)', wallRef: w };
+                        return { x: perpPt.x, y: perpPt.y };
+                    }
+                }
+            }
+
+            if (snapAI && fIsDrawing && currentWallPoints.length > 0) {
+                let basePt = currentWallPoints[currentWallPoints.length - 1];
+                for (let i = 0; i < floorWalls.length; i++) {
+                    let w = floorWalls[i];
+                    let intersectPt = findApparentIntersection(basePt, trackingPos, w.p1, w.p2);
+                    if (intersectPt && Math.hypot(trackingPos.x - intersectPt.x, trackingPos.y - intersectPt.y) < SNAP_THRESHOLD * 1.5) {
+                        activeSnapMarker = { x: intersectPt.x, y: intersectPt.y, type: 'INTERSECTION', label: 'Apparent Intersect (AI)', wallRef: w };
+                        return { x: intersectPt.x, y: intersectPt.y };
+                    }
+                }
+            }
+
+            if (snapPR && fIsDrawing && currentWallPoints.length > 0) {
+                let basePt = currentWallPoints[currentWallPoints.length - 1];
+                let activeAngle = Math.atan2(trackingPos.y - basePt.y, trackingPos.x - basePt.x);
+                for (let i = 0; i < floorWalls.length; i++) {
+                    let w = floorWalls[i];
+                    let targetAngle = Math.atan2(w.p2.y - w.p1.y, w.p2.x - w.p1.x);
+                    if (Math.abs(activeAngle - targetAngle) < 0.06 || Math.abs(Math.abs(activeAngle - targetAngle) - Math.PI) < 0.06) {
+                        let r = Math.hypot(trackingPos.x - basePt.x, trackingPos.y - basePt.y);
+                        let normX = basePt.x + r * Math.cos(targetAngle);
+                        let normY = basePt.y + r * Math.sin(targetAngle);
+                        activeSnapMarker = { x: normX, y: normY, type: 'PARALLEL', label: 'Parallel (PR)' };
+                        activeParallelGuide = { x1: w.p1.x, y1: w.p1.y, x2: w.p2.x, y2: w.p2.y };
+                        return { x: normX, y: normY };
+                    }
+                }
+            }
+
+            if (snap90 && fIsDrawing && currentWallPoints.length > 0) {
+                activeSnapMarker = { x: trackingPos.x, y: trackingPos.y, type: 'ORTHO', label: '90° Ortho Lock' };
+                return trackingPos;
+            }
+
+            if (snapNR) {
+                for (let i = 0; i < floorWalls.length; i++) {
+                    let w = floorWalls[i];
+                    let edgeObj = ptToSegDistance(rawPos, w.p1, w.p2);
+                    if (edgeObj.distance < SNAP_THRESHOLD) {
+                        activeSnapMarker = { x: edgeObj.x, y: edgeObj.y, type: 'NEAREST', label: 'Nearest Surface', wallRef: w };
+                        return { x: edgeObj.x, y: edgeObj.y };
+                    }
+                }
+            }
+
+            return rawPos;
+        }
+
+        function ptToSegDistance(pt, p1, p2) {
+            let dx = p2.x - p1.x; let dy = p2.y - p1.y;
+            if (dx === 0 && dy === 0) return { distance: Math.hypot(pt.x - p1.x, pt.y - p1.y), x: p1.x, y: p1.y };
+            let t = ((pt.x - p1.x) * dx + (pt.y - p1.y) * dy) / (dx * dx + dy * dy);
+            t = Math.max(0, Math.min(1, t));
+            return { distance: Math.hypot(pt.x - (p1.x + t * dx), pt.y - (p1.y + t * dy)), x: p1.x + t * dx, y: p1.y + t * dy };
+        }
+
+        function getPerpendicularProjection(base, p1, p2) {
+            let dx = p2.x - p1.x; let dy = p2.y - p1.y;
+            if (dx === 0 && dy === 0) return null;
+            let t = ((base.x - p1.x) * dx + (base.y - p1.y) * dy) / (dx * dx + dy * dy);
+            if (t >= 0 && t <= 1) return { x: p1.x + t * dx, y: p1.y + t * dy };
+            return null;
+        }
+
+        function findApparentIntersection(line1P1, line1P2, line2P1, line2P2) {
+            let dx1 = line1P2.x - line1P1.x; let dy1 = line1P2.y - line1P1.y;
+            let dx2 = line2P2.x - line2P1.x; let dy2 = line2P2.y - line2P1.y;
+            let denom = dx1 * dy2 - dy1 * dx2;
+            if (Math.abs(denom) < 0.001) return null;
+            let t2 = (dx1 * (line2P1.y - line1P1.y) - dy1 * (line2P1.x - line1P1.x)) / denom;
+            if (t2 >= 0 && t2 <= 1) return { x: line2P1.x + t2 * dx2, y: line2P1.y + t2 * dy2 };
+            return null;
+        }
+
+        function checkAndExecuteWallSplits(newWall) {
+            for (let i = 0; i < floorWalls.length; i++) {
+                let existing = floorWalls[i];
+                if (existing === newWall) continue;
+
+                let topA = (existing.p2.x - existing.p1.x) * (newWall.p1.y - existing.p1.y) - (existing.p2.y - existing.p1.y) * (newWall.p1.x - existing.p1.x);
+                let topB = (newWall.p2.x - newWall.p1.x) * (newWall.p1.y - existing.p1.y) - (newWall.p2.y - newWall.p1.y) * (newWall.p1.x - existing.p1.x);
+                let bot  = (existing.p2.y - existing.p1.y) * (newWall.p2.x - newWall.p1.x) - (existing.p2.x - existing.p1.x) * (newWall.p2.y - newWall.p1.y);
+
+                if (bot !== 0) {
+                    let numA = topA / bot; let numB = topB / bot;
+                    if (numA >= 0 && numA <= 1 && numB >= 0 && numB <= 1) {
+                        let ix = newWall.p1.x + numA * (newWall.p2.x - newWall.p1.x);
+                        let iy = newWall.p1.y + numA * (newWall.p2.y - newWall.p1.y);
+
+                        if (Math.hypot(ix - existing.p1.x, iy - existing.p1.y) > 4 && Math.hypot(ix - existing.p2.x, iy - existing.p2.y) > 4) {
+                            let wA = { ...existing, p2: { x: ix, y: iy } };
+                            let wB = { ...existing, p1: { x: ix, y: iy } };
+                            floorWalls.splice(i, 1, wA, wB);
+                            i++;
+                        }
+                    }
+                }
+            }
+        }
+
+        function executeFixtureWallSplit(hostWall, insertionPt, widthMeters, type, sizeLabel, architecturalType, swingConfig) {
+            let dx = hostWall.p2.x - hostWall.p1.x; 
+            let dy = hostWall.p2.y - hostWall.p1.y;
+            let wallLenPx = Math.hypot(dx, dy); 
+            let angle = Math.atan2(dy, dx);
+            let fixWidthPx = widthMeters * currentScale;
+
+            let t = ((insertionPt.x - hostWall.p1.x) * dx + (insertionPt.y - hostWall.p1.y) * dy) / (wallLenPx * wallLenPx);
+            let insertIdx = t * wallLenPx;
+            let e1Idx = insertIdx - (fixWidthPx / 2); 
+            let e2Idx = insertIdx + (fixWidthPx / 2);
+
+            if (e1Idx > 2 && e2Idx < (wallLenPx - 2)) {
+                let e1X = hostWall.p1.x + (e1Idx / wallLenPx) * dx; 
+                let e1Y = hostWall.p1.y + (e1Idx / wallLenPx) * dy;
+                let e2X = hostWall.p1.x + (e2Idx / wallLenPx) * dx; 
+                let e2Y = hostWall.p1.y + (e2Idx / wallLenPx) * dy;
+
+                let wallPre = { ...hostWall, p2: { x: e1X, y: e1Y } };
+                let wallPost = { ...hostWall, p1: { x: e2X, y: e2Y } };
+
+                let idx = floorWalls.indexOf(hostWall);
+                if (idx !== -1) {
+                    floorWalls.splice(idx, 1, wallPre, wallPost);
+                    let newAsset = {
+                        x: insertionPt.x, y: insertionPt.y, 
+                        p1: { x: e1X, y: e1Y }, p2: { x: e2X, y: e2Y },
+                        type: type, 
+                        widthMeters: widthMeters, 
+                        thicknessMeters: hostWall.thickness / 1000, 
+                        angle: angle, 
+                        label: sizeLabel,
+                        architecturalType: architecturalType, 
+                        swingConfig: swingConfig              
+                    };
+                    floorAssets.push(newAsset);
+                    actionHistoryLog.push({ type: 'fixture_split', original: hostWall, fragments: [wallPre, wallPost], asset: newAsset });
+                }
+            }
+        }
+
+        function calculateProposedTrimSegment(mouseRaw) {
+            const INT_SNAP_THRESHOLD = 16;
+            let nearestWall = null;
+            let minDist = Infinity;
+            let projectionPoint = null;
+
+            floorWalls.forEach(w => {
+                let res = ptToSegDistance(mouseRaw, w.p1, w.p2);
+                if (res.distance < INT_SNAP_THRESHOLD && res.distance < minDist) {
+                    minDist = res.distance;
+                    nearestWall = w;
+                    projectionPoint = { x: res.x, y: res.y };
+                }
+            });
+
+            if (!nearestWall) return null;
+
+            let wDx = nearestWall.p2.x - nearestWall.p1.x;
+            let wDy = nearestWall.p2.y - nearestWall.p1.y;
+            let wLenPx = Math.hypot(wDx, wDy);
+
+            let stops = [0, wLenPx];
+
+            function addOffsetStop(pxPoint) {
+                let t = ((pxPoint.x - nearestWall.p1.x) * wDx + (pxPoint.y - nearestWall.p1.y) * wDy) / (wLenPx * wLenPx);
+                if (t >= -0.005 && t <= 1.005) {
+                    stops.push(Math.max(0, Math.min(wLenPx, t * wLenPx)));
+                }
+            }
+
+            floorWalls.forEach(other => {
+                if (other === nearestWall) return;
+                let ix = findApparentIntersection(nearestWall.p1, nearestWall.p2, other.p1, other.p2);
+                if (ix) addOffsetStop(ix);
+            });
+
+            floorAssets.forEach(asset => {
+                let distToP1 = ptToSegDistance(asset.p1, nearestWall.p1, nearestWall.p2);
+                let distToP2 = ptToSegDistance(asset.p2, nearestWall.p1, nearestWall.p2);
+                if (distToP1.distance < 3.0) addOffsetStop(asset.p1);
+                if (distToP2.distance < 3.0) addOffsetStop(asset.p2);
+            });
+
+            stops = [...new Set(stops)].sort((a, b) => a - b);
+
+            let cursorT = ((projectionPoint.x - nearestWall.p1.x) * wDx + (projectionPoint.y - nearestWall.p1.y) * wDy) / (wLenPx * wLenPx);
+            let cursorDist = cursorT * wLenPx;
+
+            for (let i = 0; i < stops.length - 1; i++) {
+                let sStart = stops[i];
+                let sEnd = stops[i+1];
+                if (cursorDist >= sStart - 0.5 && cursorDist <= sEnd + 0.5) {
+                    if (sEnd - sStart < 1.5) continue;
+
+                    let p1Actual = {
+                        x: nearestWall.p1.x + (sStart / wLenPx) * wDx,
+                        y: nearestWall.p1.y + (sStart / wLenPx) * wDy
+                    };
+                    let p2Actual = {
+                        x: nearestWall.p1.x + (sEnd / wLenPx) * wDx,
+                        y: nearestWall.p1.y + (sEnd / wLenPx) * wDy
+                    };
+
+                    return {
+                        parentWall: nearestWall,
+                        p1: p1Actual,
+                        p2: p2Actual,
+                        startDist: sStart,
+                        endDist: sEnd,
+                        totalWallLen: wLenPx,
+                        wDx: wDx, wDy: wDy
+                    };
+                }
+            }
+            return null;
+        }
+
+        function executeTrimAction() {
+            if (!proposedTrimSegment) return;
+            let pts = proposedTrimSegment;
+            let targetWall = pts.parentWall;
+            let idx = floorWalls.indexOf(targetWall);
+            if (idx === -1) return;
+
+            let replacements = [];
+
+            if (pts.startDist > 2.0) {
+                replacements.push({
+                    ...targetWall,
+                    p2: { x: pts.p1.x, y: pts.p1.y }
+                });
+            }
+            if (pts.endDist < pts.totalWallLen - 2.0) {
+                replacements.push({
+                    ...targetWall,
+                    p1: { x: pts.p2.x, y: pts.p2.y }
+                });
+            }
+
+            floorWalls.splice(idx, 1, ...replacements);
+            actionHistoryLog.push({
+                type: 'trim_operation',
+                removedWall: targetWall,
+                insertedFragments: replacements
+            });
+
+            proposedTrimSegment = null;
+            calculateFloorMaterials();
+            drawFloorPlan();
+        }
+
+        function handlePointerDown(e) {
+            e.preventDefault();
+            const rawPos = getFloorMousePos(e);
+            const snapped = applyFloorSnapping(rawPos);
+            const mode = document.getElementById('mode-select').value;
+            
+            if (mode === 'trim') {
+                if (proposedTrimSegment) {
+                    executeTrimAction();
+                }
+                return;
+            }
+
+            if (mode === 'wall') {
+                const selectEl = document.getElementById('wall-profile-select');
+                const selectedOpt = selectEl.options[selectEl.selectedIndex];
+                fIsDrawing = true;
+
+                if (currentWallPoints.length > 0) {
+                    let lastPt = currentWallPoints[currentWallPoints.length - 1];
+                    if (snapped.x === lastPt.x && snapped.y === lastPt.y) { breakActiveChain(); return; }
+                    
+                    let newWall = {
+                        p1: lastPt, p2: snapped,
+                        thickness: parseFloat(selectEl.value),
+                        coreThickness: parseFloat(selectedOpt.getAttribute('data-core')),
+                        category: selectedOpt.getAttribute('data-category'),
+                        label: selectedOpt.text.split(' (~')[0],
+                        height: parseFloat(document.getElementById('wall-height-input').value)
+                    };
+                    floorWalls.push(newWall);
+                    actionHistoryLog.push({ type: 'wall', data: newWall });
+                    checkAndExecuteWallSplits(newWall);
+                }
+                currentWallPoints.push(snapped);
+            } 
+            else if (mode === 'door' && activeSnapMarker && activeSnapMarker.wallRef) {
+                let sizeEl = document.getElementById('door-size-select');
+                let sizeVal = parseFloat(sizeEl.value);
+                let archType = sizeEl.options[sizeEl.selectedIndex].getAttribute('data-door-type');
+                executeFixtureWallSplit(activeSnapMarker.wallRef, snapped, sizeVal, 'door', sizeEl.options[sizeEl.selectedIndex].text, archType, activeSwingConfigIndex);
+            }
+            else if (mode === 'window' && activeSnapMarker && activeSnapMarker.wallRef) {
+                let sizeEl = document.getElementById('window-size-select');
+                let sizeVal = parseFloat(sizeEl.value);
+                let archType = sizeEl.options[sizeEl.selectedIndex].getAttribute('data-win-type');
+                executeFixtureWallSplit(activeSnapMarker.wallRef, snapped, sizeVal, 'window', sizeEl.options[sizeEl.selectedIndex].text, archType, activeSwingConfigIndex);
+            }
+            calculateFloorMaterials();
+            drawFloorPlan();
+        }
+
+        function handlePointerMove(e) {
+            const rawPos = getFloorMousePos(e);
+            const mode = document.getElementById('mode-select').value;
+
+            if (mode === 'trim') {
+                proposedTrimSegment = calculateProposedTrimSegment(rawPos);
+                fMousePos = rawPos;
+                drawFloorPlan();
+                return;
+            }
+
+            fMousePos = applyFloorSnapping(rawPos);
+            drawFloorPlan();
+        }
+
+        floorCanvas.addEventListener('mousedown', handlePointerDown);
+        floorCanvas.addEventListener('mousemove', handlePointerMove);
+        floorCanvas.addEventListener('touchstart', handlePointerDown, {passive: false});
+        floorCanvas.addEventListener('touchmove', handlePointerMove, {passive: false});
+
+        function undoFloorElement() {
+            if (fIsDrawing && currentWallPoints.length > 0) {
+                currentWallPoints.pop(); if (currentWallPoints.length === 0) fIsDrawing = false;
+            } else if (actionHistoryLog.length > 0) {
+                let lastAction = actionHistoryLog.pop();
+                if (lastAction.type === 'wall') {
+                    floorWalls = floorWalls.filter(w => w !== lastAction.data);
+                } else if (lastAction.type === 'fixture_split') {
+                    floorAssets = floorAssets.filter(a => a !== lastAction.asset);
+                    let f1 = floorWalls.indexOf(lastAction.fragments[0]); if (f1 !== -1) floorWalls.splice(f1, 1);
+                    let f2 = floorWalls.indexOf(lastAction.fragments[1]); if (f2 !== -1) floorWalls.splice(f2, 1);
+                    floorWalls.push(lastAction.original);
+                } else if (lastAction.type === 'trim_operation') {
+                    lastAction.insertedFragments.forEach(frag => {
+                        let idx = floorWalls.indexOf(frag);
+                        if (idx !== -1) floorWalls.splice(idx, 1);
+                    });
+                    floorWalls.push(lastAction.removedWall);
+                }
+            }
+            calculateFloorMaterials();
+            drawFloorPlan();
+        }
+
+        function clearFloorCanvas() {
+            floorWalls = []; floorAssets = []; currentWallPoints = []; fIsDrawing = false; activeSnapMarker = null; actionHistoryLog = []; proposedTrimSegment = null;
+            calculateFloorMaterials(); drawFloorPlan();
+        }
+
+        function drawArchitecturalDoor(ctx, w, h, archType, swingConfig) {
+            ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+            ctx.strokeRect(-w / 2, -h / 2, w, h);
+
+            let flipY = (swingConfig === 2 || swingConfig === 3) ? -1 : 1; 
+            let flipX = (swingConfig === 1 || swingConfig === 3) ? -1 : 1; 
+
+            ctx.save();
+            ctx.scale(flipX, flipY);
+            ctx.strokeStyle = '#ffcc00'; ctx.lineWidth = 2;
+
+            if (archType === 'single') {
+                ctx.beginPath(); 
+                ctx.moveTo(-w / 2, h / 2); 
+                ctx.lineTo(-w / 2, h / 2 + w); 
+                ctx.stroke();
+            } 
+            else if (archType === 'double') {
+                ctx.beginPath();
+                ctx.moveTo(-w / 2, h / 2); ctx.lineTo(-w / 2, h / 2 + (w / 2));
+                ctx.moveTo(w / 2, h / 2); ctx.lineTo(w / 2, h / 2 + (w / 2));
+                ctx.stroke();
+            } 
+            else if (archType === 'garage') {
+                ctx.fillStyle = 'rgba(255, 153, 0, 0.08)'; ctx.fillRect(-w / 2, -h / 2, w, h);
+                ctx.strokeStyle = '#ff9900'; ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2, 0); ctx.stroke();
+                ctx.lineWidth = 1;
+                for (let sx = -w / 2 + 12; sx < w / 2; sx += 16) {
+                    ctx.beginPath(); ctx.moveTo(sx, -h / 2); ctx.lineTo(sx, h / 2); ctx.stroke();
+                }
+            } 
+            else if (archType === 'opening') {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)'; ctx.setLineDash([3, 3]);
+                ctx.strokeRect(-w / 2, -h / 2, w, h);
+            }
+            ctx.restore();
+        }
+
+        function drawArchitecturalWindow(ctx, w, h, archType, swingConfig) {
+            ctx.strokeStyle = '#3399ff'; ctx.lineWidth = 1.5;
+            ctx.strokeRect(-w / 2, -h / 2, w, h);
+
+            let flipY = (swingConfig === 2 || swingConfig === 3) ? -1 : 1; 
+            let flipX = (swingConfig === 1 || swingConfig === 3) ? -1 : 1;
+
+            if (archType === 'fixed') {
+                ctx.fillStyle = 'rgba(51, 153, 255, 0.1)'; ctx.fillRect(-w / 2, -h / 2, w, h);
+                ctx.beginPath(); ctx.moveTo(-w / 2, -h / 4); ctx.lineTo(w / 2, -h / 4); ctx.moveTo(-w / 2, h / 4); ctx.lineTo(w / 2, h / 4); ctx.stroke();
+            } 
+            else if (archType === 'operable') {
+                ctx.fillStyle = 'rgba(51, 153, 255, 0.15)'; ctx.fillRect(-w / 2, -h / 2, w, h);
+                ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2, 0); ctx.stroke();
+                ctx.save(); ctx.scale(flipX, flipY); ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; ctx.lineWidth = 1; ctx.setLineDash([2, 2]);
+                ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(0, h / 2 + 4); ctx.lineTo(w / 2, 0); ctx.stroke(); ctx.restore();
+            } 
+            else if (archType === 'commercial') {
+                ctx.fillStyle = 'rgba(0, 153, 255, 0.2)'; ctx.fillRect(-w / 2, -h / 2, w, h);
+                ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(0, -h / 2); ctx.lineTo(0, h / 2); ctx.stroke();
+            } 
+            else if (archType === 'slide-wall') {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.05)'; ctx.fillRect(-w / 2, -h / 2, w, h);
+                ctx.lineWidth = 1.5; ctx.strokeRect(-w / 2, -h / 2, w / 2, h / 2); ctx.strokeRect(0, 0, w / 2, h / 2);
+            } 
+            else if (archType === 'bifold-wall') {
+                ctx.strokeStyle = '#3399ff'; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(-w / 4, h / 2); ctx.lineTo(0, 0); ctx.lineTo(w / 4, h / 2); ctx.lineTo(w / 2, 0); ctx.stroke();
+            }
+        }
+
+        function drawFloorPlan() {
+            fCtx.clearRect(0, 0, floorCanvas.width, floorCanvas.height);
+            
+            fCtx.strokeStyle = '#222'; fCtx.lineWidth = 1;
+            let gridSpacing = currentScale / 2;
+            for (let x = 0; x < floorCanvas.width; x += gridSpacing) { fCtx.beginPath(); fCtx.moveTo(x, 0); fCtx.lineTo(x, floorCanvas.height); fCtx.stroke(); }
+            for (let y = 0; y < floorCanvas.height; y += gridSpacing) { fCtx.beginPath(); fCtx.moveTo(0, y); fCtx.lineTo(floorCanvas.width, y); fCtx.stroke(); }
+
+            if (activeParallelGuide) {
+                fCtx.save(); fCtx.strokeStyle = '#ff00ff'; fCtx.lineWidth = 1.0; fCtx.setLineDash([6, 4]);
+                fCtx.beginPath(); fCtx.moveTo(activeParallelGuide.x1, activeParallelGuide.y1); fCtx.lineTo(activeParallelGuide.x2, activeParallelGuide.y2); fCtx.stroke(); fCtx.restore();
+            }
+
+            floorWalls.forEach(wall => {
+                let pxT = (wall.thickness / 1000) * currentScale;
+                
+                if (wall.category === 'cmu') fCtx.strokeStyle = '#00ffcc';
+                else if (wall.category === 'brick') fCtx.strokeStyle = '#ff6633';
+                else if (wall.category === 'stud') fCtx.strokeStyle = '#a8dadc';
+                else if (wall.category === 'clad') fCtx.strokeStyle = '#ffcc33';
+                else if (wall.category === 'concrete') fCtx.strokeStyle = '#9999ff';
+                else fCtx.strokeStyle = '#ffffff';
+                
+                fCtx.lineWidth = Math.max(pxT, 3);
+                fCtx.beginPath(); fCtx.moveTo(wall.p1.x, wall.p1.y); fCtx.lineTo(wall.p2.x, wall.p2.y); fCtx.stroke();
+                
+                fCtx.font = "10px monospace"; fCtx.fillStyle = "#aaa";
+                fCtx.fillText(convertPixelToUnitString(Math.hypot(wall.p2.x-wall.p1.x, wall.p2.y-wall.p1.y)), (wall.p1.x+wall.p2.x)/2 + 10, (wall.p1.y+wall.p2.y)/2 - 4);
+            });
+
+            if (document.getElementById('mode-select').value === 'trim' && proposedTrimSegment) {
+                fCtx.save();
+                let trimThick = (proposedTrimSegment.parentWall.thickness / 1000) * currentScale;
+                fCtx.strokeStyle = '#ff007f'; 
+                fCtx.lineWidth = Math.max(trimThick + 4, 7);
+                fCtx.beginPath();
+                fCtx.moveTo(proposedTrimSegment.p1.x, proposedTrimSegment.p1.y);
+                fCtx.lineTo(proposedTrimSegment.p2.x, proposedTrimSegment.p2.y);
+                fCtx.stroke();
+                fCtx.restore();
+            }
+
+            if (fIsDrawing && currentWallPoints.length > 0) {
+                let lastNode = currentWallPoints[currentWallPoints.length - 1];
+                fCtx.strokeStyle = '#ffcc00'; fCtx.lineWidth = 3; fCtx.beginPath(); fCtx.moveTo(lastNode.x, lastNode.y); fCtx.lineTo(fMousePos.x, fMousePos.y); fCtx.stroke();
+                fCtx.fillStyle = "#ffcc00"; fCtx.font = "bold 12px monospace";
+                fCtx.fillText(convertPixelToUnitString(Math.hypot(fMousePos.x-lastNode.x, fMousePos.y-lastNode.y)), fMousePos.x + 15, fMousePos.y - 15);
+            }
+
+            floorAssets.forEach(asset => {
+                fCtx.save(); fCtx.translate(asset.x, asset.y); fCtx.rotate(asset.angle);
+                let rw = asset.widthMeters * currentScale;
+                let rh = Math.max(asset.thicknessMeters * currentScale, 6);
+
+                if (asset.type === 'door') drawArchitecturalDoor(fCtx, rw, rh, asset.architecturalType, asset.swingConfig);
+                else if (asset.type === 'window') drawArchitecturalWindow(fCtx, rw, rh, asset.architecturalType, asset.swingConfig);
+
+                fCtx.fillStyle = '#ffffff'; fCtx.font = '9px monospace'; fCtx.textAlign = 'center';
+                fCtx.fillText(`${(asset.widthMeters * 1000).toFixed(0)}mm`, 0, rh + 11);
+                fCtx.restore();
+            });
+
+            const activeMode = document.getElementById('mode-select').value;
+            if (activeSnapMarker && activeSnapMarker.wallRef && (activeMode === 'door' || activeMode === 'window')) {
+                let hw = activeSnapMarker.wallRef; fCtx.save(); fCtx.lineWidth = 1.2; fCtx.setLineDash([4, 4]);
+                let sizeId = activeMode === 'door' ? 'door-size-select' : 'window-size-select';
+                let sizeEl = document.getElementById(sizeId);
+                let assetW = parseFloat(sizeEl.value) * currentScale;
+                let assetH = Math.max((hw.thickness / 1000) * currentScale, 6);
+                let ang = Math.atan2(hw.p2.y - hw.p1.y, hw.p2.x - hw.p1.x);
+
+                fCtx.save(); fCtx.translate(fMousePos.x, fMousePos.y); fCtx.rotate(ang);
+                if (activeMode === 'door') drawArchitecturalDoor(fCtx, assetW, assetH, sizeEl.options[sizeEl.selectedIndex].getAttribute('data-door-type'), activeSwingConfigIndex);
+                else drawArchitecturalWindow(fCtx, assetW, assetH, sizeEl.options[sizeEl.selectedIndex].getAttribute('data-win-type'), activeSwingConfigIndex);
+                fCtx.restore();
+
+                let e1X = fMousePos.x - (assetW / 2) * Math.cos(ang); let e1Y = fMousePos.y - (assetW / 2) * Math.sin(ang);
+                let e2X = fMousePos.x + (assetW / 2) * Math.cos(ang); let e2Y = fMousePos.y + (assetW / 2) * Math.sin(ang);
+                let cP1 = Math.hypot(e1X - hw.p1.x, e1Y - hw.p1.y); let cP2 = Math.hypot(e2X - hw.p2.x, e2Y - hw.p2.y);
+
+                fCtx.strokeStyle = '#00ffff'; fCtx.fillStyle = '#00ffff'; fCtx.font = "bold 10px monospace";
+                fCtx.beginPath(); fCtx.moveTo(hw.p1.x, hw.p1.y); fCtx.lineTo(e1X, e1Y); fCtx.stroke();
+                fCtx.fillText(`[Pre: ${convertPixelToUnitString(cP1)}]`, (hw.p1.x + e1X) / 2, (hw.p1.y + e1Y) / 2 - 10);
+                fCtx.beginPath(); fCtx.moveTo(hw.p2.x, hw.p2.y); fCtx.lineTo(e2X, e2Y); fCtx.stroke();
+                fCtx.fillText(`[Post: ${convertPixelToUnitString(cP2)}]`, (hw.p2.x + e2X) / 2, (hw.p2.y + e2Y) / 2 - 10);
+                fCtx.restore();
+            }
+
+            if (activeSnapMarker && activeMode !== 'trim') {
+                fCtx.lineWidth = 2; fCtx.strokeStyle = '#00ffcc';
+                fCtx.beginPath(); fCtx.arc(activeSnapMarker.x, activeSnapMarker.y, 7, 0, Math.PI*2); fCtx.stroke();
+                fCtx.fillStyle = '#00ffcc'; fCtx.font = 'bold 10px Courier';
+                fCtx.fillText(activeSnapMarker.label, activeSnapMarker.x + 12, activeSnapMarker.y + 4);
+            }
+        }
+
+        function calculateFloorMaterials() {
+            let totalLengthPx = 0; let totalSurfaceArea = 0;
+            let wallHeight = parseFloat(document.getElementById('wall-height-input').value) || 3.0;
+
+            let masonryArea = 0;
+            let panelCladArea = 0;
+
+            floorWalls.forEach(w => {
+                let lenMeters = Math.hypot(w.p2.x - w.p1.x, w.p2.y - w.p1.y) / currentScale;
+                totalLengthPx += lenMeters; 
+                let surfA = (lenMeters * wallHeight);
+                totalSurfaceArea += surfA;
+
+                if (w.category === 'cmu' || w.category === 'brick' || w.category === 'concrete') {
+                    masonryArea += surfA;
+                } else if (w.category === 'stud' || w.category === 'clad') {
+                    panelCladArea += surfA;
+                }
+            });
+
+            let structuralDeductionArea = 0;
+            floorAssets.forEach(a => {
+                let assetHeight = a.type === 'door' ? 2.1 : 1.2;
+                structuralDeductionArea += (a.widthMeters * assetHeight);
+            });
+            
+            let totalBlocks = Math.ceil(Math.max(0, masonryArea - (structuralDeductionArea * (masonryArea / (totalSurfaceArea || 1)))) * 12.5);
+            let netPanelArea = Math.max(0, panelCladArea - (structuralDeductionArea * (panelCladArea / (totalSurfaceArea || 1))));
+
+            document.getElementById('track-walls-num').innerText = `Total Committed Wall Run Segments: ${floorWalls.length}`;
+            document.getElementById('track-length').innerText = `Sum Wall Length: ${totalLengthPx.toFixed(2)} m`;
+            document.getElementById('track-surface').innerText = `Sum Vertical Surface Area: ${Math.max(0, totalSurfaceArea - structuralDeductionArea).toFixed(2)} m²`;
+            
+            let totalOpenings = floorAssets.filter(a => a.type === 'door').length;
+            let totalWindows = floorAssets.filter(a => a.type === 'window').length;
+            document.getElementById('track-doors').innerText = `Registered Openings/Doors: ${totalOpenings} Units`;
+            document.getElementById('track-windows').innerText = `Registered Fixed Windows: ${totalWindows} Units`;
+            
+            document.getElementById('boq-units').innerText = `${totalBlocks} Pcs`;
+            document.getElementById('boq-drywall').innerText = `${Math.ceil(netPanelArea / 2.88)} Sheets`;
+            document.getElementById('boq-cement').innerText = `${Math.ceil(totalBlocks * 0.05)} Bags`;
+            document.getElementById('boq-sand').innerText = `${(totalBlocks * 0.0001).toFixed(2)} m³`;
+        }
+
+        function generateFloorPlanPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'landscape',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const sheetTitle = document.getElementById('floor-title').value || "Proposed Layout Plan";
+            const globalHeight = parseFloat(document.getElementById('wall-height-input').value) || 3.0;
+            const timestamp = new Date().toLocaleString();
+
+            // ========================================================
+            // AUTOMATED SCALING MATH (Fit plan workspace onto layout)
+            // ========================================================
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            
+            if (floorWalls.length > 0) {
+                floorWalls.forEach(w => {
+                    minX = Math.min(minX, w.p1.x, w.p2.x);
+                    maxX = Math.max(maxX, w.p1.x, w.p2.x);
+                    minY = Math.min(minY, w.p1.y, w.p2.y);
+                    maxY = Math.max(maxY, w.p1.y, w.p2.y);
+                });
+            } else {
+                minX = 0; maxX = floorCanvas.width || 800;
+                minY = 0; maxY = floorCanvas.height || 600;
+            }
+
+            let drawingW = maxX - minX;
+            let drawingH = maxY - minY;
+            if (drawingW <= 0) drawingW = 1;
+            if (drawingH <= 0) drawingH = 1;
+
+            // Target boundaries on the page for the drawing workspace (leaving room for the right block panel)
+            const targetLeft = 10;
+            const targetTop = 15;
+            const targetWidth = 210; 
+            const targetHeight = 180;
+
+            let scaleFactor = Math.min(targetWidth / drawingW, targetHeight / drawingH);
+            
+            // If the user's layout fits within the workspace without scaling, cap it at 1.0 to avoid distortion
+            if (scaleFactor > 1.0) {
+                scaleFactor = 1.0;
+            }
+
+            const transX = (canvasX) => targetLeft + (canvasX - minX) * scaleFactor + (targetWidth - drawingW * scaleFactor) / 2;
+            const transY = (canvasY) => targetTop + (canvasY - minY) * scaleFactor + (targetHeight - drawingH * scaleFactor) / 2;
+            const transDist = (pxDist) => pxDist * scaleFactor;
+
+            // ========================================================
+            // PAGE 1: ARCHITECTURAL технический STRUCTURAL FLOOR PLAN
+            // ========================================================
+            
+            // Outer Layout Framing Border
+            doc.setDrawColor(40, 40, 40);
+            doc.setLineWidth(0.6);
+            doc.rect(5, 5, 287, 200); 
+
+            // 1. Right-Side Solid Vertical Engineering Title Block Panel
+            const tPanelX = 232;
+            const tPanelW = 55;
+            doc.setDrawColor(40, 40, 40);
+            doc.setLineWidth(0.4);
+            doc.line(tPanelX, 5, tPanelX, 205); // Vertical Separator Line
+
+            // Title Box Headers
+            doc.setFillColor(30, 30, 30);
+            doc.rect(tPanelX + 2, 7, tPanelW - 4, 18, 'F');
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(255, 51, 51);
+            doc.text("PRODUCTION DRAWING", tPanelX + 5, 13);
+            doc.setFontSize(7);
+            doc.setTextColor(180, 180, 180);
+            doc.text("ENGINEERING SHIFT GROUP", tPanelX + 5, 17);
+
+            // Project Field Category Box
+            doc.setFont("Helvetica", "bold");
+            doc.setTextColor(50, 50, 50);
+            doc.text("PROJECT / SITE:", tPanelX + 4, 33);
+            doc.setFont("Helvetica", "normal");
+            doc.setFontSize(8);
+            doc.setTextColor(0, 0, 0);
+            
+            // Multi-line wrap for long project names
+            let splitTitle = doc.splitTextToSize(sheetTitle.toUpperCase(), tPanelW - 8);
+            doc.text(splitTitle, tPanelX + 4, 38);
+
+            // Drawing Field Metadata Lines
+            let blockY = 65;
+            const addTitleField = (heading, val) => {
+                doc.setDrawColor(200, 200, 200);
+                doc.line(tPanelX + 2, blockY, tPanelX + tPanelW - 2, blockY);
+                doc.setFont("Helvetica", "bold");
+                doc.setFontSize(6.5);
+                doc.setTextColor(90, 90, 90);
+                doc.text(heading, tPanelX + 4, blockY + 3);
+                doc.setFont("Helvetica", "bold");
+                doc.setFontSize(8);
+                doc.setTextColor(0, 0, 0);
+                doc.text(val, tPanelX + 4, blockY + 7.5);
+                blockY += 11;
+            };
+
+            addTitleField("DRAWING REGISTRY:", "STRUCTURAL PARTITION PLAN");
+            addTitleField("CLEAR DESIGN VERTICAL HEIGHT:", `${globalHeight.toFixed(2)} METERS`);
+            addTitleField("SYSTEM DESIGN CALIBRATION SCALE:", scaleFactor === 1.0 ? "SCALE: 1:50 METRIC" : "SCALE: TO FIT SHEET (NTS)");
+            addTitleField("GENERATED TIMESTAMP DATA:", timestamp.split(",")[0]);
+            addTitleField("RECORDING OPERATOR:", "CIVIL FIELD OFFICE");
+
+            // Page Number Base Footer Anchor Box
+            doc.setFillColor(245, 245, 245);
+            doc.rect(tPanelX + 2, 185, tPanelW - 4, 16, 'F');
+            doc.setDrawColor(180, 180, 180);
+            doc.rect(tPanelX + 2, 185, tPanelW - 4, 16, 'D');
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(7);
+            doc.setTextColor(80, 80, 80);
+            doc.text("SHEET INDEX IDENTIFICATION", tPanelX + 4, 189);
+            doc.setFontSize(11);
+            doc.setTextColor(255, 51, 51);
+            doc.text("PAGE 01 / 02", tPanelX + 4, 197);
+
+            // 2. Render Scaled Vector Elements onto Canvas Workspace Region
+            floorWalls.forEach(w => {
+                let pxT = (w.thickness / 1000) * currentScale;
+                let pdfLineWidth = Math.max(transDist(pxT) * 0.45, 0.4);
+                
+                if (w.category === 'cmu') doc.setDrawColor(0, 160, 130);
+                else if (w.category === 'brick') doc.setDrawColor(200, 70, 30);
+                else if (w.category === 'concrete') doc.setDrawColor(100, 100, 200);
+                else doc.setDrawColor(120, 120, 120);
+
+                doc.setLineWidth(pdfLineWidth);
+                doc.line(transX(w.p1.x), transY(w.p1.y), transX(w.p2.x), transY(w.p2.y));
+                
+                let lenM = Math.hypot(w.p2.x - w.p1.x, w.p2.y - w.p1.y) / currentScale;
+                if (lenM > 1.2) {
+                    doc.setFont("Courier", "bold");
+                    doc.setFontSize(6.5);
+                    doc.setTextColor(80, 80, 80);
+                    doc.text(`${lenM.toFixed(2)}m`, transX((w.p1.x + w.p2.x)/2) + 2, transY((w.p1.y + w.p2.y)/2) - 1.5);
+                }
+            });
+
+            floorAssets.forEach(a => {
+                doc.setDrawColor(220, 140, 0); 
+                doc.setLineWidth(0.5);
+                doc.line(transX(a.p1.x), transY(a.p1.y), transX(a.p2.x), transY(a.p2.y));
+                
+                doc.setFont("Helvetica", "italic");
+                doc.setFontSize(5.5);
+                doc.setTextColor(100, 100, 100);
+                doc.text(`${a.type.toUpperCase()} (${(a.widthMeters * 1000).toFixed(0)}mm)`, transX(a.x) - 4, transY(a.y) + 4);
+            });
+
+
+            // ========================================================
+            // PAGE 2: BILL OF QUANTITIES (BOQ) MATERIALS SHEET
+            // ========================================================
+            doc.addPage('landscape', 'mm', 'a4');
+            
+            // Page 2 Outer Frame Bound
+            doc.setDrawColor(85, 85, 85);
+            doc.setLineWidth(0.5);
+            doc.rect(5, 5, 287, 200);
+
+            // Fetch live calculated properties arrays
+            const wallsCount = floorWalls.length;
+            const sumLength = document.getElementById('track-length').innerText.split(': ')[1] || "0.00 m";
+            const sumSurface = document.getElementById('track-surface').innerText.split(': ')[1] || "0.00 m²";
+            const doorsCount = document.getElementById('track-doors').innerText.split(': ')[1] || "0 Units";
+            const windowsCount = document.getElementById('track-windows').innerText.split(': ')[1] || "0 Units";
+            
+            const boqUnits = document.getElementById('boq-units').innerText;
+            const boqDrywall = document.getElementById('boq-drywall').innerText;
+            const boqCement = document.getElementById('boq-cement').innerText;
+            const boqSand = document.getElementById('boq-sand').innerText;
+
+            // Page 2 Solid Black Header Plate Banner
+            doc.setFillColor(24, 24, 24);
+            doc.rect(10, 10, 277, 18, 'F');
+            
+            doc.setFont("Helvetica", "bold");
+            doc.setFontSize(14);
+            doc.setTextColor(255, 51, 51);
+            doc.text("COMPREHENSIVE MATERIAL TAKE-OFF & BILL OF QUANTITIES", 15, 22);
+            
+            doc.setFontSize(8);
+            doc.setTextColor(170, 170, 170);
+            doc.text(`Sheet Context Anchor: ${sheetTitle} | Compiled On: ${timestamp}`, 15, 25);
+            doc.text("Page: 02 / 02", 260, 25);
+
+            let rowY = 42;
+            const printTableSection = (title, items) => {
+                doc.setFont("Helvetica", "bold");
+                doc.setFontSize(10.5);
+                doc.setTextColor(255, 51, 51);
+                doc.text(title, 15, rowY);
+                rowY += 4;
+
+                // Header Column Blocks
+                doc.setFillColor(45, 45, 45);
+                doc.rect(15, rowY, 267, 8, 'F');
+                
+                doc.setFontSize(9);
+                doc.setTextColor(255, 255, 255);
+                doc.text("Item Component Description Matrix", 18, rowY + 5.5);
+                doc.text("Calculated Estimated Output Metrics", 185, rowY + 5.5);
+                rowY += 8;
+
+                // Inner Table Structural Rows Data Loop
+                items.forEach((item, idx) => {
+                    // Alternate row colors for clean accounting scannability
+                    if (idx % 2 === 0) {
+                        doc.setFillColor(255, 255, 255);
+                    } else {
+                        doc.setFillColor(245, 245, 245);
+                    }
+                    doc.rect(15, rowY, 267, 8, 'F');
+                    
+                    // Fine structural mesh bounds borders
+                    doc.setDrawColor(210, 210, 210);
+                    doc.rect(15, rowY, 267, 8, 'D');
+                    
+                    // Black high-contrast readable text output overrides
+                    doc.setFont("Helvetica", "normal");
+                    doc.setFontSize(9);
+                    doc.setTextColor(0, 0, 0); 
+                    doc.text(item.label, 18, rowY + 5.5);
+                    
+                    doc.setFont("Helvetica", "bold");
+                    doc.text(item.val, 185, rowY + 5.5);
+                    
+                    rowY += 8;
+                });
+                rowY += 8; 
+            };
+
+            // 1. Structural Linear Space Arrays
+            printTableSection("1. LINEAR METRICS & VOLUMETRIC SPACE ANALYSIS", [
+                { label: "Total Active Structural Partition Segments Committed", val: `${wallsCount} Elements` },
+                { label: "Cumulative Centerline Wall Run Perimeter Length", val: sumLength },
+                { label: "Global Partition Design Clear Height Constraint", val: `${globalHeight.toFixed(2)} m` },
+                { label: "Net Face Vertical Plane Surface Area (Minus Aperture Cuts)", val: sumSurface }
+            ]);
+
+            // 2. Openings Ledger Register
+            printTableSection("2. FIXED STRUCTURAL OPENINGS & FIXTURES REGISTRY", [
+                { label: "Registered Wall Egress/Hinged Door Apertures Checked", val: doorsCount },
+                { label: "Registered Fixed/Sliding Window Glazing Elements Tracked", val: windowsCount }
+            ]);
+
+            // 3. Raw Aggregate Component Estimates
+            printTableSection("3. ESTIMATED STRUCTURAL RUN MATERIAL DISPATCH QUANTITIES", [
+                { label: "Solid Masonry Modular Core Units (CMU / Standard Clay Brick Pcs)", val: boqUnits },
+                { label: "Drywall Paneling Gypsum Sheets (Standard 2.88 m² Coverage Unit Panels)", val: boqDrywall },
+                { label: "Structural Binder Cement Bags Mix Ratio (Estimated 50kg Bags)", val: boqCement },
+                { label: "Bulk Volumetric Infill Mortar Sand Fine Aggregate Volume", val: boqSand }
+            ]);
+
+            // Footnote Disclaimer Stamp Anchor
+            doc.setFont("Helvetica", "italic");
+            doc.setFontSize(7);
+            doc.setTextColor(120, 120, 120);
+            doc.text("Disclaimer: Materials summary estimates are compiled values from raw centerline geometric parameters. Field verification must be crosschecked prior to physical procurement dispatch loops.", 15, 196);
+
+            // Trigger immediate system pipe download window stream
+            const cleanFileName = sheetTitle.toLowerCase().replace(/[^a-z0-9]/g, "-");
+            doc.save(`boq-sheet-${cleanFileName}.pdf`);
+        }
+    </script>
+</body>
+</html>
